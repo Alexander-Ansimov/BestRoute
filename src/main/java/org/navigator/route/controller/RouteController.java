@@ -22,7 +22,9 @@ public class RouteController {
                            @PathVariable String destination) {
     log.debug("Got request with origin: %s, and destination: %s".formatted(origin, destination));
     RouteDto responseRoute = routeService.findBestRoute(origin, destination);
-    log.debug("Response route: " + responseRoute);
+    log.debug("Shortest route from %s to %s is: %s"
+        .formatted(origin, destination, responseRoute.getRoute()));
     return responseRoute;
   }
+
 }
