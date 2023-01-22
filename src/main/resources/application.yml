@@ -1,0 +1,6 @@
+data:
+  countries: country-data.json
+
+logging:
+  level:
+    org.navigator.route: DEBUG
