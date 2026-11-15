@@ -1,0 +1,4 @@
+[
+  {"cca3": "AAA", "borders": ["BBB"], "name": {"common": "A"}},
+  {"cca3": "BBB", "borders": ["AAA"]}
+]
