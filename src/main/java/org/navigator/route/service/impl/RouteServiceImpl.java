@@ -1,9 +1,11 @@
 package org.navigator.route.service.impl;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Queue;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +13,6 @@ import org.navigator.route.dto.RouteDto;
 import org.navigator.route.exception.InvalidParameterException;
 import org.navigator.route.exception.NoLandCrossingException;
 import org.navigator.route.model.Country;
-import org.navigator.route.model.Route;
 import org.navigator.route.service.CountryService;
 import org.navigator.route.service.RouteService;
 import org.springframework.stereotype.Service;
@@ -25,71 +26,64 @@ public class RouteServiceImpl implements RouteService {
 
   @Override
   public RouteDto findBestRoute(String origin, String destination) {
-    Map<String, Country> countryMap = countryService.createCountryMap();
-    validate(countryMap, origin, destination);
+    Map<String, Country> countries = countryService.createCountryMap();
+    validate(countries, origin, destination);
 
-    Route bestRoute = searchForBestRoute(countryMap, origin, destination);
-
-    log.debug("Best route is found: " + bestRoute);
-    return new RouteDto(bestRoute.getRoute());
+    Queue<String> route = findShortestRoute(countries, origin, destination);
+    log.debug("Best route is found: {}", route);
+    return new RouteDto(route);
   }
 
-  private Route searchForBestRoute(Map<String, Country> countryMap,
-                                   String origin,
-                                   String destination) {
-    Country originCountry = countryMap.get(origin);
+  /**
+   * Breadth-first search over land borders. Routes are extended one level
+   * (one country longer) at a time, so the first route that reaches the
+   * destination is a shortest one.
+   */
+  private Queue<String> findShortestRoute(Map<String, Country> countries,
+                                          String origin,
+                                          String destination) {
+    Country originCountry = countries.get(origin);
     if (originCountry.getBorders().contains(destination)) {
-      return new Route(origin, destination);
+      return pathOf(origin, destination);
+    }
+    originCountry.setIsReached(true);
+
+    List<LinkedList<String>> level = new ArrayList<>();
+    for (Country neighbour : unvisitedNeighbours(originCountry)) {
+      level.add(pathOf(origin, neighbour.getName()));
     }
 
-    originCountry.setIsReached(true);
-    List<Country> nonReachedCountries = originCountry.getAllNonReachedCountry();
-    if (nonReachedCountries == null) {
-      throw new NoLandCrossingException("Failed to find lend crossing to destination");
+    while (!level.isEmpty()) {
+      List<LinkedList<String>> nextLevel = new ArrayList<>();
+      for (LinkedList<String> route : level) {
+        Country last = countries.get(route.getLast());
+        if (last.getBorders() == null) {
+          continue;
+        }
+        if (last.getBorders().contains(destination)) {
+          route.addLast(destination);
+          return route;
+        }
+        for (Country neighbour : unvisitedNeighbours(last)) {
+          neighbour.setIsReached(true);
+          LinkedList<String> extended = new LinkedList<>(route);
+          extended.addLast(neighbour.getName());
+          nextLevel.add(extended);
+        }
+      }
+      level = nextLevel;
     }
-    List<Route> initialRouteList = nonReachedCountries.stream()
-        .map(nonReachedCountry -> new Route(originCountry.getName(), nonReachedCountry.getName()))
-        .toList();
-    return handleNextLevel(initialRouteList, countryMap, destination);
+
+    throw new NoLandCrossingException("Failed to find lend crossing to destination");
   }
 
-  private Route handleNextLevel(List<Route> currentRouteList,
-                               Map<String, Country> countryMap,
-                               String destination) {
-    Route resultRoute = new Route();
+  private static List<Country> unvisitedNeighbours(Country country) {
+    List<Country> neighbours = country.getAllNonReachedCountry();
+    return neighbours == null ? List.of() : neighbours;
+  }
 
-    List<Route> newRoutes = currentRouteList.stream()
-        .map(route -> {
-          Country currentCountry = countryMap.get(route.getRoute().getLast());
-          List<Country> nonReachedCountries = currentCountry.getAllNonReachedCountry();
-
-          if (currentCountry.getBorders() == null || nonReachedCountries == null
-              || resultRoute.getRoute() != null) {
-            return null;
-          }
-          if (currentCountry.getBorders().contains(destination)) {
-            route.addNextCountry(destination);
-            resultRoute.setRoute(new LinkedList<>(route.getRoute()));
-            return null;
-          }
-
-          return nonReachedCountries.stream().map(country -> {
-            country.setIsReached(true);
-            return new Route(route, country.getName());
-          }).toList();
-        })
-        .filter(Objects::nonNull)
-        .flatMap(List::stream)
-        .toList();
-
-    if (resultRoute.getRoute() != null) {
-      return resultRoute;
-    }
-    if (newRoutes.isEmpty()) {
-      throw new NoLandCrossingException("Failed to find lend crossing to destination");
-    }
-
-    return handleNextLevel(newRoutes, countryMap, destination);
+  private static LinkedList<String> pathOf(String... countryNames) {
+    return new LinkedList<>(Arrays.asList(countryNames));
   }
 
   private void validate(Map<String, Country> countryMap, String origin, String destination) {
